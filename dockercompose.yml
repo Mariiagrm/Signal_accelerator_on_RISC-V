@@ -1,0 +1,9 @@
+services:
+  riscv:
+    build: .
+    container_name: riscv-environment
+    ports:
+      - "80:80"
+    volumes:
+      - ./app:/
+ 
