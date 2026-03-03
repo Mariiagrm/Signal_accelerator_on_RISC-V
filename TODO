@@ -1,0 +1,31 @@
+[x] Entorno y Línea Base: Instala el riscv-gnu-toolchain con soporte multi-lib para rv64gcv. 
+[] Escribe tu algoritmo DSP (por ejemplo, un filtro FIR o una FFT) en C escalar puro. 
+[] Compílalo y ejecútalo en el simulador Spike usando la bandera de conteo de instrucciones. 
+
+Este será tu "punto cero" para medir el éxito.Identificación del Kernel: Usa un profiler o simplemente identifica el bucle (loop) donde se realizan las multiplicaciones y sumas ($A \times B + C$). En procesamiento de señales, esto suele ser el 90% del tiempo de ejecución.
+
+
+[] Vectorización con Intrínsecos: En lugar de ensamblador puro desde cero, usa RVV Intrinsics en C. Esto te permite usar funciones como __riscv_vle32_v_f32m1 para cargar datos. 
+Uso de LMUL (Register Grouping): Esta es la característica más potente. Puedes decirle al procesador que agrupe, por ejemplo, 4 registros vectoriales para que actúen como uno solo de cuádruple capacidad (m4). 
+Esto reduce drásticamente el overhead de las instrucciones de control del bucle y maximiza el rendimiento por ciclo.
+
+Encadenamiento (Chaining): Diseña tu código para que las instrucciones de carga (vle) seguidas de operaciones aritméticas (vfmacc) puedan ejecutarse de forma solapada en el pipeline. RISC-V permite que una unidad aritmética empiece a trabajar en los primeros elementos de un vector antes de que la unidad de memoria termine de cargar el vector completo.
+
+Operaciones de Fused Multiply-Add (FMA): En DSP, el 100% de la optimización real viene de usar instrucciones como vfmacc.vv (Vector-Vector) o vfmacc.vf (Vector-Escalar). Estas realizan la multiplicación y la suma en un solo paso con un solo error de redondeo, lo cual es ideal para filtros digitales de alta precisión.
+
+Lo vital aquí es implementar el "Strip-mining": un bucle que usa vsetvli para calcular cuántos elementos procesar en cada iteración basándose en el hardware simulación.
+
+[] Análisis de Escalabilidad: Ejecuta el mismo código variando el parámetro VLEN (ancho del registro vectorial) en el simulador (de 128 a 512 bits). 
+Comprobar si el código está bien hecho (es agnóstico a la longitud), el rendimiento debería escalar sin cambiar una sola línea de código.
+
+[] Demostrar speedup masivo. Por ejemplo, en un filtro FIR, podrías pasar de procesar 1 muestra por iteración a procesar 16 o 32 simultáneamente
+
+
+
+-----------------------------------------------------
+
+[x] Para aislar cualquier efecto lateral, con dos binarios (uno sin vectorización y otra con vectorización) y medir el tiempo de ejecución de cada uno de ellos. 
+
+[x] Ver cómo las gestiona el compilador las instrucciones vectoriales. Para ello te recomiendo que utilizando un código C simple (por ejemplo, el de DAXPY que hemos visto en clase) pruebes a compilarlo y analices el código ensamblador RVV que genera.El mejor compilador que puedes usar para ello es LLVM/Clang (es la opción más madura en la actualidad). Simplemente trata de compilar con las opciones -O3, -march=rv64gcv y -o para que genere el código ensamblador. 
+
+[x] Analizar con ChatGPT puede ir analizando para qué sirven las instrucciones que se han generado. Lo más interesante es la instrucción vsetvli que se usa en RVV para configurar los vectores (longitud y tipo de datos).

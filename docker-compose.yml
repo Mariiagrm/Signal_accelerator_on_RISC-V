@@ -1,0 +1,9 @@
+services:
+  riscv-env:
+    build: .
+    image: riscv-toolchain-gcv
+    container_name: riscv_dev
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true

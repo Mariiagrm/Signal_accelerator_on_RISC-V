@@ -1,0 +1,360 @@
+Aquí tienes el **análisis instrucción por instrucción** de tu ensamblador RISC-V + RVV. Es un ejemplo muy bueno porque GCC ha hecho **vectorización automática en `saxpy_scalar`** y **vectorización explícita en `saxpy_vec`**.
+
+# 🔧 Cabecera del archivo
+
+.file "operacionesVectoriales.c"
+
+Indica el archivo fuente original.
+
+.option nopic
+
+Código **no PIC (Position Independent Code)**. Más rápido para simulación (Spike).
+
+.attribute arch, "rv64i2p1_m2p0_a2p1_f2p2_d2p2_c2p0_v1p0 ..."
+
+Arquitectura soportada:
+* `rv64i` → base 64 bits
+* `m` → multiplicación/división
+* `a` → atómicas
+* `f` → float simple
+* `d` → float doble
+* `c` → compressed
+* `v` → vector extension
+* `zvl128b` → vector mínimo 128 bits
+Indica que **RVV está activo correctamente**.
+
+
+.attribute unaligned_access, 0
+
+Accesos desalineados **no permitidos**.
+
+
+.attribute stack_align, 16
+
+Stack alineado a 16 bytes.
+
+
+.text
+
+Sección de código.
+
+
+.align 1
+
+Alineación de instrucciones (2 bytes).
+
+# 🔵 Función saxpy_scalar
+
+.globl saxpy_scalar
+
+Símbolo visible externamente.
+
+.type saxpy_scalar, @function
+
+Define función.
+
+
+saxpy_scalar:
+beq a0,zero,.L12
+
+Si `n == 0` → salir.
+Registros ABI:
+
+a0 = n
+a1 = x
+a2 = y
+fa0 = a
+
+
+addi a3,a2,-4
+
+a3 = y - 4
+Preparación de comprobación de aliasing.
+
+
+csrr a6,vlenb
+
+Lee longitud vectorial en bytes.
+Ejemplo:
+
+VLEN=128 bits → vlenb=16 bytes
+
+
+sub a3,a3,a1
+
+Calcula distancia entre x e y.
+
+
+addi a6,a6,-8
+
+Margen de seguridad para solapamientos.
+
+
+mv a5,a2
+mv a4,a1
+
+Copias:
+
+a5 = y
+a4 = x
+
+
+bleu a3,a6,.L3
+
+Si memoria puede solaparse → usar versión escalar.
+Si no → vectorizar.
+GCC detecta aliasing automáticamente.
+
+# 🔵 Inicialización vectorial
+
+vsetvli a5,zero,e32,m1,ta,ma
+
+Configura:
+* elemento 32 bits
+* LMUL=1
+* tail agnostic
+* mask agnostic
+`a5 = VL`
+
+
+vfmv.v.f v3,fa0
+
+Carga escalar `a` en todo el vector:
+
+v3 = [a a a a a ...]
+
+
+mv a4,a2
+
+a4 = y
+
+# 🔵 Bucle vectorial automático
+
+.L4:
+
+Inicio loop.
+
+
+vsetvli a5,a0,e32,m1,ta,ma
+
+VL = min(n, VLmax)
+
+
+vle32.v v1,0(a1)
+
+Carga x vector:
+
+v1 = x[i]
+
+
+vle32.v v2,0(a2)
+
+Carga y vector:
+
+v2 = y[i]
+
+
+slli a3,a5,2
+
+Bytes = VL × 4
+(float = 4 bytes)
+
+
+sub a0,a0,a5
+
+n -= VL
+
+
+add a1,a1,a3
+add a2,a2,a3
+
+Avanzar punteros.
+
+
+vfmadd.vv v1,v3,v2
+
+FMA vector:
+
+v1 = v3*v1 + v2
+
+equivale:
+
+a*x + y
+
+
+vse32.v v1,0(a4)
+
+Guardar resultado.
+
+
+add a4,a4,a3
+
+Avanzar puntero salida.
+
+
+bne a0,zero,.L4
+
+Seguir si quedan elementos.
+
+
+ret
+
+Salir.
+
+# 🔵 Ruta escalar fallback
+
+.L3:
+slli a0,a0,2
+add a0,a2,a0
+
+Calcular dirección final.
+
+
+.L6:
+flw fa5,0(a4)
+
+Cargar x[i].
+
+
+flw fa4,0(a5)
+
+Cargar y[i].
+
+
+addi a5,a5,4
+addi a4,a4,4
+
+Avanzar punteros.
+
+
+fmadd.s fa5,fa0,fa5,fa4
+
+FMA escalar:
+
+fa5 = a*x + y
+
+
+fsw fa5,-4(a5)
+
+Guardar resultado.
+
+
+bne a5,a0,.L6
+
+Loop.
+
+
+.L12:
+ret
+
+Salir.
+
+# 🔴 Importante
+Tu función **saxpy_scalar está vectorizada automáticamente por GCC**.
+No es realmente escalar.
+
+# 🔵 Función saxpy_vec
+Tu versión manual RVV:
+
+saxpy_vec:
+beq a0,zero,.L25
+
+Si n=0 salir.
+
+
+.L18:
+vsetvli a5,a0,e32,m8,ta,ma
+
+VL = min(n,VLmax)
+Configuración:
+
+LMUL=8
+
+Máximo paralelismo.
+
+
+vle32.v v16,0(a1)
+
+vx = x[i]
+
+
+vle32.v v8,0(a2)
+
+vy = y[i]
+
+
+slli a4,a5,2
+
+Bytes = VL×4
+
+
+sub a0,a0,a5
+
+n -= VL
+
+
+add a1,a1,a4
+
+x += VL
+
+
+vfmacc.vf v8,fa0,v16
+
+FMA vector:
+
+v8 = v8 + a*v16
+
+exactamente SAXPY.
+
+
+vse32.v v8,0(a2)
+
+Guardar.
+
+
+add a2,a2,a4
+
+y += VL
+
+
+bne a0,zero,.L18
+
+Loop.
+
+
+.L25:
+ret
+
+Salir.
+
+# ⭐ Diferencia clave
+### saxpy_scalar
+GCC automático:
+
+LMUL = m1
+alias-check
+fallback escalar
+
+Más seguro.
+
+### saxpy_vec
+Tu código:
+
+LMUL = m8
+sin alias-check
+más rápido
+más simple
+
+
+# ⭐ Observación muy importante
+Tu `saxpy_vec` es **mejor código que el generado automáticamente**:
+Porque usa:
+
+m8
+
+En vez de:
+
+m1
+
+→ **hasta 8× más throughput teórico**.
+
